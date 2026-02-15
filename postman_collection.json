@@ -1,0 +1,82 @@
+{
+  "info": {
+    "name": "BidCraft Backend",
+    "_postman_id": "bidcraft-backend-collection",
+    "description": "Quick collection for BidCraft backend endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Verify Firebase Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"idToken\": \"<ID_TOKEN>\" }"
+        },
+        "url": { "raw": "http://localhost:4000/api/auth/verify-token", "host": ["http://localhost:4000"], "path": ["api","auth","verify-token"] }
+      }
+    },
+    {
+      "name": "Provider Onboard (file)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "" }
+          ]
+        },
+        "url": { "raw": "http://localhost:4000/api/provider/onboard", "host": ["http://localhost:4000"], "path": ["api","provider","onboard"] }
+      }
+    },
+    {
+      "name": "Upload RFP (file)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "" }
+          ]
+        },
+        "url": { "raw": "http://localhost:4000/api/rfp/upload", "host": ["http://localhost:4000"], "path": ["api","rfp","upload"] }
+      }
+    },
+    {
+      "name": "Run Agents",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"rfpId\": \"<RFP_ID>\", \"strategy\": \"default\" }"
+        },
+        "url": { "raw": "http://localhost:4000/api/bidcraft/run", "host": ["http://localhost:4000"], "path": ["api","bidcraft","run"] }
+      }
+    },
+    {
+      "name": "Dashboard Stats",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" }
+        ],
+        "url": { "raw": "http://localhost:4000/api/bidcraft/dashboard/stats", "host": ["http://localhost:4000"], "path": ["api","bidcraft","dashboard","stats"] }
+      }
+    }
+  ]
+}
+
