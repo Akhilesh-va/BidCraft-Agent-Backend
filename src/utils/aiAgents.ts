@@ -183,3 +183,107 @@ ${rawText}
   }
 };
 
+// Extract structured SRS summary from raw SRS text using Groq (strict JSON output)
+export const extractSRS = async (rawText: string) => {
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY is not set. Set GROQ_API_KEY in your .env to call the Groq service.');
+  }
+
+  const prompt = `You are an expert at summarizing Software Requirement Specifications (SRS).
+Given the raw SRS text below, extract a STRICT JSON object that exactly matches the following schema (no extra keys):
+
+{
+  "projectOverview": string,
+  "keyRequirements": [ string, ... ],   // 2-5 items, core functional requirements only
+  "scopeAndModules": [ string, ... ],   // 2-5 items, major system modules or feature areas
+  "constraints": [ string, ... ]        // 2-5 items, technical/operational/compliance constraints
+}
+
+Return ONLY the JSON object and nothing else. If any field cannot be determined, provide an empty array or a short string saying "Not specified".
+
+Raw SRS text:
+-----
+${rawText}
+-----`;
+
+  const model = process.env.GROQ_MODEL || ANALYZE_MODEL;
+  // call SDK similar to company extractor
+  let resp: any = null;
+  let sdkError: any = null;
+  try {
+    if ((groqClient as any).chat && (groqClient as any).chat.completions && (groqClient as any).chat.completions.create) {
+      resp = await (groqClient as any).chat.completions.create({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 2000,
+        temperature: 0.0,
+        response_format: { type: 'json_object' }
+      });
+    } else if ((groqClient as any).generate) {
+      resp = await (groqClient as any).generate({ model, input: prompt });
+    } else if ((groqClient as any).request) {
+      resp = await (groqClient as any).request({ model, prompt });
+    } else {
+      resp = await (groqClient as any).call?.({ model, prompt });
+    }
+  } catch (e) {
+    sdkError = e;
+  }
+
+  if (!resp && sdkError && process.env.GROQ_API_URL) {
+    try {
+      const r = await fetch(process.env.GROQ_API_URL!, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.GROQ_API_KEY ? { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } : {})
+        },
+        body: JSON.stringify({ prompt, model, max_tokens: 2000 })
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`Groq HTTP fallback error: ${r.status} ${t}`);
+      }
+      resp = await r.text();
+    } catch (httpErr) {
+      throw new Error(`Groq SDK call failed: ${sdkError?.message || String(sdkError)}; HTTP fallback error: ${httpErr?.message || String(httpErr)}`);
+    }
+  }
+  if (!resp && sdkError) {
+    throw new Error(`Groq SDK call failed: ${sdkError?.message || String(sdkError)}`);
+  }
+
+  let outText = '';
+  if (typeof resp === 'string') outText = resp;
+  else if (typeof resp === 'object') {
+    const choice = resp.choices && resp.choices[0];
+    const message = choice?.message;
+    const content = message?.content;
+    if (content) {
+      if (typeof content === 'string') outText = content;
+      else if (typeof content === 'object') outText = content.text || content?.parts?.join('') || JSON.stringify(content);
+    }
+    outText = outText || resp.output_text || resp.text || resp.result || JSON.stringify(resp);
+  } else {
+    outText = String(resp);
+  }
+
+  const jsonMatch = outText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    console.error('Groq did not return JSON for SRS. Full output:', outText);
+    throw new Error('Groq did not return JSON');
+  }
+  try {
+    const parsed = JSON.parse(jsonMatch[0]);
+    // Basic normalization: ensure arrays present and length limits
+    parsed.keyRequirements = Array.isArray(parsed.keyRequirements) ? parsed.keyRequirements.slice(0,5) : [];
+    parsed.scopeAndModules = Array.isArray(parsed.scopeAndModules) ? parsed.scopeAndModules.slice(0,5) : [];
+    parsed.constraints = Array.isArray(parsed.constraints) ? parsed.constraints.slice(0,5) : [];
+    parsed.projectOverview = parsed.projectOverview || 'Not specified';
+    return parsed;
+  } catch (err: any) {
+    console.error('Failed to parse Groq JSON for SRS. Full output:', outText, 'parseError:', err);
+    throw new Error('Groq returned malformed JSON for SRS: ' + (err.message || String(err)));
+  }
+};
+
