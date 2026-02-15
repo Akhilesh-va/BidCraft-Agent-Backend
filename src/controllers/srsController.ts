@@ -8,7 +8,8 @@ export const uploadSRSAndExtract = async (req: Request, res: Response) => {
     if (!file) return res.status(400).json({ error: 'PDF required' });
     const rawText = await extractText(file.buffer);
     const srs = await extractSRS(rawText);
-    return res.json({ ok: true, srs });
+    // Return both parsed structured SRS and the raw extracted text for reference
+    return res.json({ ok: true, srs, rawText });
   } catch (err: any) {
     console.error('SRS extraction failed', err);
     return res.status(500).json({ error: 'SRS extraction failed', details: err.message || String(err) });

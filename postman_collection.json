@@ -173,6 +173,38 @@
       }
     },
     {
+      "name": "Generate Proposal from Approved Overview (protected)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "approvedOverview", "type": "text", "value": "{\"projectOverview\":\"...\"}" },
+            { "key": "file", "type": "file", "src": "" }
+          ]
+        },
+        "url": { "raw": "http://localhost:4000/api/bidcraft/generate-proposal", "host": ["http://localhost:4000"], "path": ["api","bidcraft","generate-proposal"] }
+      }
+    },
+    {
+      "name": "Refine Existing Proposal (protected)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"approvedOverview\": { /* edited overview JSON */ }, \"existingProposal\": { /* existing proposal JSON */ } }"
+        },
+        "url": { "raw": "http://localhost:4000/api/bidcraft/refine-proposal", "host": ["http://localhost:4000"], "path": ["api","bidcraft","refine-proposal"] }
+      }
+    },
+    {
       "name": "Dashboard Stats",
       "request": {
         "method": "GET",
