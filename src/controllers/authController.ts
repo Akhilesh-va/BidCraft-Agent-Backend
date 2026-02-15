@@ -37,6 +37,7 @@ export const verifyToken = async (req: Request, res: Response) => {
       user.verified = true;
       if (name) user.name = user.name || name;
       if (picture) user.picture = user.picture || picture;
+    if (email && !user.email) user.email = email;
       if (uid) user.googleId = user.googleId || uid;
       await user.save();
     }

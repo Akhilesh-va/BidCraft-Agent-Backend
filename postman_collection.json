@@ -21,6 +21,20 @@
       }
     },
     {
+      "name": "Create Dev ID Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"uid\": \"dev-user\" }"
+        },
+        "url": { "raw": "http://localhost:4000/api/auth/dev-token", "host": ["http://localhost:4000"], "path": ["api","auth","dev-token"] }
+      }
+    },
+    {
       "name": "Provider Onboard (file)",
       "request": {
         "method": "POST",
@@ -37,6 +51,47 @@
       }
     },
     {
+      "name": "Upload & Save Company Profile (protected)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "" }
+          ]
+        },
+        "url": { "raw": "http://localhost:4000/api/provider/profile/upload", "host": ["http://localhost:4000"], "path": ["api","provider","profile","upload"] }
+      }
+    },
+    {
+      "name": "Update Stored Profile (protected)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"profile\": { /* paste structured profile JSON here */ } }"
+        },
+        "url": { "raw": "http://localhost:4000/api/provider/profile", "host": ["http://localhost:4000"], "path": ["api","provider","profile"] }
+      }
+    },
+    {
+      "name": "Get Stored Profile (protected)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer <ID_TOKEN>" }
+        ],
+        "url": { "raw": "http://localhost:4000/api/provider/profile", "host": ["http://localhost:4000"], "path": ["api","provider","profile"] }
+      }
+    },
+    {
       "name": "Upload RFP (file)",
       "request": {
         "method": "POST",
@@ -50,6 +105,42 @@
           ]
         },
         "url": { "raw": "http://localhost:4000/api/rfp/upload", "host": ["http://localhost:4000"], "path": ["api","rfp","upload"] }
+      }
+    },
+    {
+      "name": "Parse PDF (generic)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "" }
+          ]
+        },
+        "url": { "raw": "http://localhost:4000/api/parse/upload", "host": ["http://localhost:4000"], "path": ["api","parse","upload"] }
+      }
+    },
+    {
+      "name": "Structure from Raw Text",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"rawText\": \"<PASTE_RAW_TEXT_HERE>\" }"
+        },
+        "url": { "raw": "http://localhost:4000/api/parse/structure", "host": ["http://localhost:4000"], "path": ["api","parse","structure"] }
+      }
+    },
+    {
+      "name": "Test Groq SDK",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:4000/api/parse/test-groq", "host": ["http://localhost:4000"], "path": ["api","parse","test-groq"] }
       }
     },
     {
