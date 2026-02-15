@@ -9,11 +9,17 @@ import providerRoutes from './routes/providerRoutes';
 import rfpRoutes from './routes/rfpRoutes';
 import bidCraftRoutes from './routes/bidCraftRoutes';
 import parseRoutes from './routes/parseRoutes';
+import cors from 'cors';
+import morgan from 'morgan';
 
 const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Allow cross-origin requests (adjust origin in production)
+app.use(cors({ origin: true }));
+// Request logging
+app.use(morgan('combined'));
 
 // Strict startup checks for required env when using Firebase auth
 const requireFirebaseEnv = () => {
