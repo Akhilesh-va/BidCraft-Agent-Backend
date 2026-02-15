@@ -1,12 +1,23 @@
 import type { Request, Response } from 'express';
 import Groq from 'groq-sdk';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const createGroqClient = () => {
+  if (!process.env.GROQ_API_KEY) return null;
+  try {
+    return new Groq({ apiKey: process.env.GROQ_API_KEY });
+  } catch (err) {
+    console.error('Failed to construct Groq client', err);
+    return null;
+  }
+};
 
 export const testGroq = async (_req: Request, res: Response) => {
   if (!process.env.GROQ_API_KEY) {
     return res.status(400).json({ ok: false, error: 'GROQ_API_KEY not set in env' });
   }
+  const groq = createGroqClient();
+  if (!groq) return res.status(500).json({ ok: false, error: 'Failed to initialize Groq client' });
+
   try {
     const prompt = 'Please respond with a single JSON object: { "status": "ok" }';
     const model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';

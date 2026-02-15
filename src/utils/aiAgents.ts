@@ -3,8 +3,16 @@ import Groq from 'groq-sdk';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const ANALYZE_MODEL = process.env.GROQ_ANALYZE_MODEL || 'llama-3.3-70b-versatile';
-// Initialize Groq SDK using only the API key (no custom base URL required for the hosted SDK)
-const groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+const createGroqClient = () => {
+  if (!process.env.GROQ_API_KEY) return null;
+  try {
+    return new Groq({ apiKey: process.env.GROQ_API_KEY });
+  } catch (e) {
+    console.error('Failed to initialize Groq SDK', e);
+    return null;
+  }
+};
 
 export const analyzeRequirements = async (rfp: any) => {
   await sleep(300);
@@ -61,12 +69,36 @@ export const draftProposal = async (analysis: any, solution: any, pricing: any, 
   };
 };
 
-export const extractCompanyProfile = async (rawText: string) => {
-  // GROQ_API_URL is optional when using the official SDK; ensure API key is present
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error('GROQ_API_KEY is not set. Set GROQ_API_KEY in your .env to call the Groq service.');
-  }
+export const fallbackProfile = (rawText: string) => {
+  // Conservative heuristic fallback that extracts minimal information from the text
+  const lower = (rawText || '').slice(0, 2000).toLowerCase();
+  const nameMatch = rawText.match(/([A-Z][A-Za-z0-9&\s\-,]{2,50})(?:\s+(?:private|limited|inc|llc|ltd))?/);
+  const industries: string[] = [];
+  if (lower.includes('software')) industries.push('software');
+  if (lower.includes('it ')) industries.push('it');
+  if (lower.includes('consult')) industries.push('consulting');
+  const companyName = nameMatch ? nameMatch[1].trim() : 'Unknown';
+  return {
+    company_identity: {
+      name: companyName,
+      industries: industries.length ? industries : ['Not specified'],
+      company_size: 'Not specified',
+      delivery_regions: ['Not specified']
+    },
+    services: {},
+    tech_stack: { frontend: [], backend: [], database: [], cloud: [], devops: [] },
+    delivery_capability: { team_composition: {}, delivery_models: [], typical_project_duration_months: [] },
+    pricing_rules: { currency: 'USD', monthly_cost_per_role: {}, margin_percentage: 0 },
+    commercial_constraints: { minimum_engagement_months: 0, payment_terms: 'Not specified', escalation_buffer_percentage: 0 },
+    security_and_compliance: { security_practices: [], certifications: [], data_privacy_ready: false },
+    experience_and_case_studies: { primary_industries: industries.length ? industries : ['Not specified'], case_studies: [] },
+    proposal_preferences: { tone: 'professional', branding_required: false, standard_sections: [] }
+  };
+};
 
+export const extractCompanyProfile = async (rawText: string) => {
+  // GROQ_API_URL is optional when using the official SDK; prefer SDK but gracefully fallback
+  const groqClient = createGroqClient();
   const prompt = `You are an expert extractor. Given the following raw company profile text, output a single valid JSON object that strictly follows this schema (no extra keys):
 
 {
@@ -92,6 +124,12 @@ ${rawText}
 -----`;
 
   const model = process.env.GROQ_MODEL || ANALYZE_MODEL;
+  // If no SDK configured, return heuristic fallback instead of throwing
+  if (!groqClient) {
+    console.warn('GROQ_API_KEY not set — using heuristic fallback extractor for company profile.');
+    return fallbackProfile(rawText);
+  }
+
   // Prefer the SDK chat completions API when available (groq.chat.completions.create)
   let resp: any = null;
   let sdkError: any = null;
@@ -136,18 +174,24 @@ ${rawText}
       });
       if (!r.ok) {
         const t = await r.text();
-        throw new Error(`Groq HTTP fallback error: ${r.status} ${t}`);
+        console.error('Groq HTTP fallback failed', r.status, t);
+      } else {
+        resp = await r.text();
       }
-      resp = await r.text();
     } catch (httpErr) {
-      throw new Error(`Groq SDK call failed: ${sdkError?.message || String(sdkError)}; HTTP fallback error: ${httpErr?.message || String(httpErr)}`);
+      console.error('Groq HTTP fallback error', httpErr);
     }
   }
+
   if (!resp && sdkError) {
-    throw new Error(`Groq SDK call failed: ${sdkError?.message || String(sdkError)}`);
+    console.error('Groq SDK call failed — using fallback extractor', sdkError);
+    return fallbackProfile(rawText);
   }
 
-  if (!resp) throw new Error('Groq did not return a response');
+  if (!resp) {
+    console.warn('Groq did not return a response — using heuristic fallback.');
+    return fallbackProfile(rawText);
+  }
 
   let outText = '';
   if (typeof resp === 'string') {
@@ -173,20 +217,28 @@ ${rawText}
   const jsonMatch = outText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     console.error('Groq did not return JSON. Full output:', outText);
-    throw new Error('Groq did not return JSON');
+    return fallbackProfile(rawText);
   }
   try {
     return JSON.parse(jsonMatch[0]);
   } catch (err: any) {
     console.error('Failed to parse Groq JSON. Full output:', outText, 'parseError:', err);
-    throw new Error('Groq returned malformed JSON: ' + (err.message || String(err)));
+    return fallbackProfile(rawText);
   }
 };
 
 // Extract structured SRS summary from raw SRS text using Groq (strict JSON output)
 export const extractSRS = async (rawText: string) => {
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error('GROQ_API_KEY is not set. Set GROQ_API_KEY in your .env to call the Groq service.');
+  const groqClient = createGroqClient();
+  if (!groqClient) {
+    console.warn('GROQ_API_KEY not set — using simple heuristic fallback for SRS extraction.');
+    // Very simple fallback: return a minimal SRS-like structure
+    return {
+      projectOverview: rawText.slice(0, 300) || 'Not specified',
+      keyRequirements: [],
+      scopeAndModules: [],
+      constraints: []
+    };
   }
 
   const prompt = `You are an expert at summarizing Software Requirement Specifications (SRS).

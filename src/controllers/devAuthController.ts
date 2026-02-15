@@ -10,6 +10,8 @@ export const createDevIdToken = async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Dev auth disabled. Set ENABLE_DEV_AUTH=true to enable.' });
   }
   try {
+    const adminInst = initFirebase();
+    if (!adminInst) return res.status(500).json({ error: 'Firebase not initialized' });
     const uid = req.body.uid || 'dev-user';
     const webApiKey = process.env.FIREBASE_WEB_API_KEY;
     if (!webApiKey) return res.status(500).json({ error: 'FIREBASE_WEB_API_KEY not configured' });

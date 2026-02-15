@@ -2,6 +2,7 @@ import mongoose, { Document } from 'mongoose';
 
 export interface IRFP extends Document {
   clientName?: string;
+  rawText?: string;
   budget?: number;
   deadline?: Date;
   requirements: string[];

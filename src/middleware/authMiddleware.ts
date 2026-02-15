@@ -1,16 +1,40 @@
 import { Request, Response, NextFunction } from 'express';
-import admin, { initFirebase } from '../config/firebase';
+import { initFirebase } from '../config/firebase';
+import admin from 'firebase-admin';
 import User from '../models/User';
 
-// ensure firebase admin initialized
-try { initFirebase(); } catch (err) { /* will surface on use */ }
-
+// protect middleware supports a local dev bypass when SKIP_FIREBASE_VERIFY=true
 export const protect = async (req: Request & { user?: any }, res: Response, next: NextFunction) => {
+  // Dev bypass
+  if (process.env.SKIP_FIREBASE_VERIFY === 'true') {
+    const devEmail = (req.headers['x-dev-user-email'] as string) || 'dev@local';
+    try {
+      let user = await User.findOne({ email: devEmail });
+      if (!user) {
+        user = await User.create({ email: devEmail, name: 'Dev User', verified: true });
+      }
+      req.user = user;
+      return next();
+    } catch (e) {
+      console.error('Dev bypass user creation failed', e);
+      return res.status(500).json({ error: 'Dev bypass failed' });
+    }
+  }
+
+  // Normal flow: expect Authorization header with Bearer token
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Not authorized' });
   }
   const idToken = auth.split(' ')[1];
+
+  // Lazy init Firebase admin
+  const adminInst = initFirebase();
+  if (!adminInst) {
+    console.error('Firebase admin not initialized; cannot verify tokens.');
+    return res.status(500).json({ error: 'Firebase not initialized' });
+  }
+
   try {
     const decoded = await admin.auth().verifyIdToken(idToken);
     const uid = (decoded as any).uid as string | undefined;

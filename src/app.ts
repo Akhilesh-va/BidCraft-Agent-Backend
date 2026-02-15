@@ -1,22 +1,26 @@
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
+import cors from 'cors';
+import morgan from 'morgan';
 dotenv.config();
 
 import connectDB from './config/db';
-
-import authRoutes from './routes/authRoutes';
-import providerRoutes from './routes/providerRoutes';
-import rfpRoutes from './routes/rfpRoutes';
-import bidCraftRoutes from './routes/bidCraftRoutes';
-import parseRoutes from './routes/parseRoutes';
 
 const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Strict startup checks for required env when using Firebase auth
+// Enable CORS for emulator/device testing and add request logging
+app.use(cors({ origin: true }));
+app.use(morgan('combined'));
+
+// Strict startup checks for required env when using Firebase auth, but allow skipping in local dev
 const requireFirebaseEnv = () => {
+  if (process.env.SKIP_FIREBASE_VERIFY === 'true') {
+    console.warn('SKIP_FIREBASE_VERIFY=true — skipping Firebase credential checks (dev only).');
+    return;
+  }
   const hasServiceAccount = !!process.env.FIREBASE_SERVICE_ACCOUNT;
   const hasCredPath = !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!hasServiceAccount && !hasCredPath) {
@@ -29,6 +33,13 @@ requireFirebaseEnv();
 
 // Connect to DB
 connectDB();
+
+// Lazy-load route modules after env checks so controllers that require envs don't initialize prematurely
+const authRoutes = require('./routes/authRoutes').default;
+const providerRoutes = require('./routes/providerRoutes').default;
+const rfpRoutes = require('./routes/rfpRoutes').default;
+const bidCraftRoutes = require('./routes/bidCraftRoutes').default;
+const parseRoutes = require('./routes/parseRoutes').default;
 
 // Routes
 app.use('/api/auth', authRoutes);

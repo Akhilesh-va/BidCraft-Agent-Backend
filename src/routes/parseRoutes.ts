@@ -4,6 +4,7 @@ import { upload } from '../middleware/uploadMiddleware';
 import { structureFromRaw } from '../controllers/structureController';
 import { testGroq } from '../controllers/groqController';
 import { uploadSRSAndExtract } from '../controllers/srsController';
+import { protect } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.post('/structure', structureFromRaw);
 // Quick test endpoint to validate Groq SDK/key
 router.get('/test-groq', testGroq);
 // Upload SRS PDF and return structured SRS JSON (strict)
-router.post('/srs/upload/overview', (upload as any).single('file'), uploadSRSAndExtract);
+router.post('/srs/upload/overview', protect, (upload as any).single('file'), uploadSRSAndExtract);
 
 export default router;
 
