@@ -8,6 +8,7 @@ import authRoutes from './routes/authRoutes';
 import providerRoutes from './routes/providerRoutes';
 import rfpRoutes from './routes/rfpRoutes';
 import bidCraftRoutes from './routes/bidCraftRoutes';
+import parseRoutes from './routes/parseRoutes';
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/provider', providerRoutes);
 app.use('/api/rfp', rfpRoutes);
 app.use('/api/bidcraft', bidCraftRoutes);
+app.use('/api/parse', parseRoutes);
 
 // Basic health
 app.get('/', (req: Request, res: Response) => res.json({ ok: true, service: 'BidCraft Backend' }));

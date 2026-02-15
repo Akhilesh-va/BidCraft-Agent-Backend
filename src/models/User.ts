@@ -6,6 +6,7 @@ export interface IUser extends Document {
   googleId?: string;
   name?: string;
   picture?: string;
+  companyProfile?: any;
   verified: boolean;
   companyName?: string;
   techStack: string[];
@@ -19,6 +20,7 @@ const ProviderSchema = new mongoose.Schema<IUser>({
   googleId: { type: String, unique: true, sparse: true },
   name: { type: String },
   picture: { type: String },
+  companyProfile: { type: mongoose.Schema.Types.Mixed },
   verified: { type: Boolean, default: false },
   companyName: { type: String },
   techStack: { type: [String], default: [] },
