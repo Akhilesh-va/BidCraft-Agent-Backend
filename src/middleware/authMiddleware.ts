@@ -2,9 +2,6 @@ import { Request, Response, NextFunction } from 'express';
 import admin, { initFirebase } from '../config/firebase';
 import User from '../models/User';
 
-// ensure firebase admin initialized
-try { initFirebase(); } catch (err) { /* will surface on use */ }
-
 export const protect = async (req: Request & { user?: any }, res: Response, next: NextFunction) => {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) {
@@ -12,6 +9,23 @@ export const protect = async (req: Request & { user?: any }, res: Response, next
   }
   const idToken = auth.split(' ')[1];
   try {
+    // Allow bypass during development via SKIP_FIREBASE_VERIFY env flag.
+    if (process.env.SKIP_FIREBASE_VERIFY === 'true') {
+      // If provided, prefer an explicit debug header to identify the dev user
+      const devEmail = (req.headers['x-dev-user-email'] as string) || 'dev@local';
+      let user = await User.findOne({ email: devEmail });
+      if (!user) {
+        user = await User.create({
+          email: devEmail,
+          name: 'Dev User',
+          verified: true
+        });
+      }
+      req.user = user;
+      return next();
+    }
+
+    try { initFirebase(); } catch (e) { /* will surface on admin usage */ }
     const decoded = await admin.auth().verifyIdToken(idToken);
     const uid = (decoded as any).uid as string | undefined;
     const email = (decoded as any).email as string | undefined;

@@ -1,15 +1,13 @@
 import type { Request, Response } from 'express';
 import admin, { initFirebase } from '../config/firebase';
 
-// ensure firebase admin
-try { initFirebase(); } catch (e) { /* will surface on use */ }
-
 // Dev-only endpoint: create a custom token and exchange for ID token (for Postman testing)
 export const createDevIdToken = async (req: Request, res: Response) => {
   if (process.env.ENABLE_DEV_AUTH !== 'true') {
     return res.status(403).json({ error: 'Dev auth disabled. Set ENABLE_DEV_AUTH=true to enable.' });
   }
   try {
+    try { initFirebase(); } catch (e) { /* will surface below */ }
     const uid = req.body.uid || 'dev-user';
     const webApiKey = process.env.FIREBASE_WEB_API_KEY;
     if (!webApiKey) return res.status(500).json({ error: 'FIREBASE_WEB_API_KEY not configured' });

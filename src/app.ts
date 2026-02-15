@@ -3,12 +3,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import connectDB from './config/db';
-
-import authRoutes from './routes/authRoutes';
-import providerRoutes from './routes/providerRoutes';
-import rfpRoutes from './routes/rfpRoutes';
-import bidCraftRoutes from './routes/bidCraftRoutes';
-import parseRoutes from './routes/parseRoutes';
 import cors from 'cors';
 import morgan from 'morgan';
 
@@ -35,6 +29,13 @@ requireFirebaseEnv();
 
 // Connect to DB
 connectDB();
+
+// Lazy-load routes after env check (prevent early initialization of controllers)
+const authRoutes = require('./routes/authRoutes').default;
+const providerRoutes = require('./routes/providerRoutes').default;
+const rfpRoutes = require('./routes/rfpRoutes').default;
+const bidCraftRoutes = require('./routes/bidCraftRoutes').default;
+const parseRoutes = require('./routes/parseRoutes').default;
 
 // Routes
 app.use('/api/auth', authRoutes);

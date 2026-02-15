@@ -2,9 +2,19 @@ import Groq from 'groq-sdk';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const ANALYZE_MODEL = process.env.GROQ_ANALYZE_MODEL || 'llama-3.3-70b-versatile';
-// Initialize Groq SDK using only the API key (no custom base URL required for the hosted SDK)
-const groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const ANALYZE_MODEL = process.env.GROQ_ANALYZE_MODEL || 'llama-3.1-8b-instant';
+// Initialize Groq SDK only when API key is provided to avoid throwing at module load time
+let groqClient: any = null;
+try {
+  if (process.env.GROQ_API_KEY) {
+    groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  } else {
+    console.warn('GROQ_API_KEY not set — Groq features are disabled. Set GROQ_API_KEY in .env to enable.');
+  }
+} catch (err) {
+  console.error('Failed to initialize Groq SDK:', err);
+  groqClient = null;
+}
 
 export const analyzeRequirements = async (rfp: any) => {
   await sleep(300);
@@ -62,9 +72,52 @@ export const draftProposal = async (analysis: any, solution: any, pricing: any, 
 };
 
 export const extractCompanyProfile = async (rawText: string) => {
+  // Helper: small heuristic fallback when Groq is unavailable or rate-limited
+  const fallbackProfile = (text: string) => {
+    // pick first non-empty line as name candidate
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    let candidate = lines.length ? lines[0] : 'Provider';
+    // try to find company-like token
+    const companyMatch = text.match(/([A-Z][\w&\-\s]{2,}?(?:Ltd|LLP|Pvt|Inc|PLC|Corporation|Services|Solutions|Systems))/i);
+    if (companyMatch) candidate = companyMatch[1].trim();
+    // extract an email if present
+    const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/);
+    const email = emailMatch ? emailMatch[0] : undefined;
+    // simple tech keywords
+    const techKeywords = ['React', 'React Native', 'Node.js', 'Express', 'NestJS', 'Java', 'Spring', 'MongoDB', 'PostgreSQL', 'MySQL', 'AWS', 'GCP', 'Azure', 'Kubernetes', 'Docker'];
+    const foundTech = techKeywords.filter(k => new RegExp('\\b' + k.replace('.', '\\.') + '\\b', 'i').test(text));
+
+    return {
+      company_identity: {
+        name: candidate,
+        industries: [],
+        company_size: 'Not specified',
+        delivery_regions: []
+      },
+      services: {},
+      tech_stack: {
+        frontend: foundTech.filter(t => /React|Next/.test(t)),
+        backend: foundTech.filter(t => /Node|Java|Express|NestJS|Spring/.test(t)),
+        database: foundTech.filter(t => /MongoDB|PostgreSQL|MySQL/.test(t)),
+        cloud: foundTech.filter(t => /AWS|GCP|Azure/.test(t)),
+        devops: foundTech.filter(t => /Kubernetes|Docker/.test(t))
+      },
+      delivery_capability: {},
+      pricing_rules: {},
+      commercial_constraints: {},
+      security_and_compliance: {},
+      experience_and_case_studies: {},
+      proposal_preferences: {},
+      // attach a minimal contact if we found email
+      ...(email ? { company_contact_email: email } : {})
+    };
+  };
+
   // GROQ_API_URL is optional when using the official SDK; ensure API key is present
   if (!process.env.GROQ_API_KEY) {
-    throw new Error('GROQ_API_KEY is not set. Set GROQ_API_KEY in your .env to call the Groq service.');
+    // use fallback extractor when key not set
+    console.warn('GROQ_API_KEY not set — returning heuristic fallback profile.');
+    return fallbackProfile(rawText);
   }
 
   const prompt = `You are an expert extractor. Given the following raw company profile text, output a single valid JSON object that strictly follows this schema (no extra keys):
@@ -144,7 +197,8 @@ ${rawText}
     }
   }
   if (!resp && sdkError) {
-    throw new Error(`Groq SDK call failed: ${sdkError?.message || String(sdkError)}`);
+    console.warn('Groq SDK call failed and no HTTP fallback or it failed. Returning heuristic fallback.', sdkError);
+    return fallbackProfile(rawText);
   }
 
   if (!resp) throw new Error('Groq did not return a response');
@@ -173,13 +227,15 @@ ${rawText}
   const jsonMatch = outText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     console.error('Groq did not return JSON. Full output:', outText);
-    throw new Error('Groq did not return JSON');
+    // fallback to heuristic extractor rather than throwing
+    return fallbackProfile(rawText);
   }
   try {
     return JSON.parse(jsonMatch[0]);
   } catch (err: any) {
     console.error('Failed to parse Groq JSON. Full output:', outText, 'parseError:', err);
-    throw new Error('Groq returned malformed JSON: ' + (err.message || String(err)));
+    // fallback to heuristic extractor
+    return fallbackProfile(rawText);
   }
 };
 
