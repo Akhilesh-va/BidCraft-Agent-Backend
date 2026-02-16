@@ -42,7 +42,7 @@ OUTPUT: Return ONLY a single JSON object that matches this schema exactly (no ex
 
 Return ONLY the JSON object. No explanation. No markdown.`;
 
-    const model = process.env.GROQ_MODEL || process.env.GROQ_ANALYZE_MODEL || 'llama-3.3-70b-versatile';
+    const model = process.env.GROQ_MODEL || process.env.GROQ_ANALYZE_MODEL || 'llama-3.1-8b-instant';
 
     let resp: any;
     if ((groq as any).chat && (groq as any).chat.completions && (groq as any).chat.completions.create) {

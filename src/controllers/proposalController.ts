@@ -59,7 +59,7 @@ TASKS in order:
 
 Return ONLY the JSON object, no extra text.`;
 
-    const model = process.env.GROQ_MODEL || process.env.GROQ_ANALYZE_MODEL || 'llama-3.3-70b-versatile';
+    const model = process.env.GROQ_MODEL || process.env.GROQ_ANALYZE_MODEL || 'llama-3.1-8b-instant';
 
     // call SDK chat if available
     let resp: any;
@@ -197,18 +197,21 @@ Return ONLY a single JSON object that matches the required RFP response schema. 
         await rfp.save();
         // Render HTML report from refinedProposal for frontend display / PDF rendering
         const reportHtml = renderProposalHtml(refinedProposal, rfp, provider);
-        return res.json({ ok: true, rfp, proposal: refinedProposal, reportHtml });
+        const feasibility = assessFeasibility(refinedProposal, companyProfile, approvedOverview);
+        return res.json({ ok: true, rfp, proposal: refinedProposal, reportHtml, feasible: feasibility.feasible, feasibilityReasons: feasibility.reasons });
       } else {
         // If refinement failed to return JSON, return original proposal but log warning
         console.warn('Refinement did not return JSON, returning initial proposal.');
         const reportHtml = renderProposalHtml(proposal, rfp, provider);
-        return res.json({ ok: true, rfp, proposal, reportHtml });
+        const feasibility = assessFeasibility(proposal, companyProfile, approvedOverview);
+        return res.json({ ok: true, rfp, proposal, reportHtml, feasible: feasibility.feasible, feasibilityReasons: feasibility.reasons });
       }
     } catch (refineErr) {
       console.error('Proposal refinement failed', refineErr);
       // return original proposal
       const reportHtml = renderProposalHtml(proposal, rfp, provider);
-      return res.json({ ok: true, rfp, proposal, refineError: String(refineErr), reportHtml });
+      const feasibility = assessFeasibility(proposal, companyProfile, approvedOverview);
+      return res.json({ ok: true, rfp, proposal, refineError: String(refineErr), reportHtml, feasible: feasibility.feasible, feasibilityReasons: feasibility.reasons });
     }
   } catch (err: any) {
     console.error('generateProposalFromOverview failed', err);
@@ -294,6 +297,62 @@ function renderProposalMarkdown(proposal: any, rfp: any, provider: any) {
   lines.push('---');
   lines.push('**End of Proposal**');
   return lines.join('\n');
+}
+
+// Assess feasibility based on provider profile, proposal pricing/duration, and approved overview constraints.
+function assessFeasibility(proposal: any, companyProfile: any, approvedOverview: any) {
+  const reasons: string[] = [];
+
+  try {
+    // Price check
+    const totalCost = Number(proposal?.pricing_and_commercials?.total_cost ?? proposal?.pricing_and_commercials?.totalCost ?? 0);
+    const budget = Number(approvedOverview?.budget ?? approvedOverview?.budgetAmount ?? 0);
+    if (budget && totalCost && !isNaN(budget) && !isNaN(totalCost) && totalCost > budget) {
+      reasons.push(`Estimated total cost (${totalCost}) exceeds client budget (${budget}).`);
+    }
+
+    // Timeline / deadline check
+    const durationMonths = Number(proposal?.delivery_plan?.total_duration_months ?? proposal?.delivery_plan?.totalDurationMonths ?? 0);
+    if (approvedOverview?.deadline && durationMonths && !isNaN(durationMonths)) {
+      const deadline = new Date(approvedOverview.deadline);
+      if (!isNaN(deadline.getTime())) {
+        const now = new Date();
+        const monthsRemaining = Math.max(0, (deadline.getFullYear() - now.getFullYear()) * 12 + (deadline.getMonth() - now.getMonth()));
+        if (durationMonths > monthsRemaining) {
+          reasons.push(`Proposed delivery duration (${durationMonths} months) exceeds time available until client deadline (${monthsRemaining} months).`);
+        }
+      }
+    }
+
+    // Requirement coverage check
+    const notCovered = (proposal?.requirement_mapping || proposal?.requirementMapping || []).filter((m: any) => {
+      const status = (m?.status || '').toString().toLowerCase();
+      return status.includes('not covered') || status.includes('not supported') || status === 'not_covered' || status === 'not_supported';
+    });
+    if (Array.isArray(notCovered) && notCovered.length > 0) {
+      const ids = notCovered.map((n: any) => n.requirement_id || n.requirementId || n.id || n.requirement).slice(0, 5);
+      reasons.push(`Some requirements are not covered by provider: ${ids.join(', ')}.`);
+    }
+
+    // Capability check via companyProfile.services (best-effort)
+    if (companyProfile && companyProfile.services && Array.isArray(proposal?.requirement_mapping)) {
+      const svcKeys = Object.keys(companyProfile.services || {});
+      const unsupported = proposal.requirement_mapping.filter((m: any) => {
+        const svc = (m?.mapped_service || '').toString().toLowerCase();
+        if (!svc) return false;
+        // if mapped_service doesn't match any provided service keys, warn
+        return !svcKeys.some(k => k.toLowerCase().includes(svc) || svc.includes(k.toLowerCase()));
+      });
+      if (unsupported.length > 0) {
+        reasons.push(`Mapped services include items not present in provider's declared services.`);
+      }
+    }
+  } catch (e) {
+    // if anything fails, do not mark feasible true by default
+    reasons.push('Feasibility check failed to complete: ' + (e instanceof Error ? e.message : String(e)));
+  }
+
+  return { feasible: reasons.length === 0, reasons };
 }
 
 // Simple HTML renderer for proposal JSON (suitable for conversion to PDF)
