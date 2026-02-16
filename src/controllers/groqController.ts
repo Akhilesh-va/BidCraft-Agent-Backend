@@ -1,41 +1,40 @@
 import type { Request, Response } from 'express';
 import Groq from 'groq-sdk';
 
-const createGroqClient = () => {
-  if (!process.env.GROQ_API_KEY) return null;
-  try {
-    return new Groq({ apiKey: process.env.GROQ_API_KEY });
-  } catch (err) {
-    console.error('Failed to construct Groq client', err);
-    return null;
+let groqClient: any = null;
+try {
+  if (process.env.GROQ_API_KEY) {
+    groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  } else {
+    console.warn('GROQ_API_KEY not set — groqController will be disabled until key is provided.');
   }
-};
+} catch (err) {
+  console.error('Failed to initialize Groq SDK in groqController:', err);
+  groqClient = null;
+}
 
 export const testGroq = async (_req: Request, res: Response) => {
-  if (!process.env.GROQ_API_KEY) {
+  if (!process.env.GROQ_API_KEY || !groqClient) {
     return res.status(400).json({ ok: false, error: 'GROQ_API_KEY not set in env' });
   }
-  const groq = createGroqClient();
-  if (!groq) return res.status(500).json({ ok: false, error: 'Failed to initialize Groq client' });
-
   try {
-    const prompt = 'Please respond with a single JSON object: { "status": "ok" }';
+    const prompt = 'Please respond with a single JSON object: { \"status\": \"ok\" }';
     const model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
     let resp: any;
     // Try chat completions if available
-    if ((groq as any).chat && (groq as any).chat.completions && (groq as any).chat.completions.create) {
-      resp = await (groq as any).chat.completions.create({
+    if ((groqClient as any).chat && (groqClient as any).chat.completions && (groqClient as any).chat.completions.create) {
+      resp = await (groqClient as any).chat.completions.create({
         model,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 200
       });
-    } else if ((groq as any).generate) {
-      resp = await (groq as any).generate({ model, input: prompt });
-    } else if ((groq as any).request) {
-      resp = await (groq as any).request({ model, prompt });
+    } else if ((groqClient as any).generate) {
+      resp = await (groqClient as any).generate({ model, input: prompt });
+    } else if ((groqClient as any).request) {
+      resp = await (groqClient as any).request({ model, prompt });
     } else {
       // last resort try call()
-      resp = await (groq as any).call?.({ model, prompt });
+      resp = await (groqClient as any).call?.({ model, prompt });
     }
 
     let out = '';

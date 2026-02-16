@@ -16,6 +16,7 @@ router.post('/structure', structureFromRaw);
 // Quick test endpoint to validate Groq SDK/key
 router.get('/test-groq', testGroq);
 // Upload SRS PDF and return structured SRS JSON (strict)
+// Protect SRS overview endpoint so only authenticated users may upload SRS files
 router.post('/srs/upload/overview', protect, (upload as any).single('file'), uploadSRSAndExtract);
 
 export default router;

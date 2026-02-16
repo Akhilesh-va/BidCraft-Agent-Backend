@@ -42,10 +42,12 @@ OUTPUT: Return ONLY a single JSON object that matches this schema exactly (no ex
 
 Return ONLY the JSON object. No explanation. No markdown.`;
 
-    const model = process.env.GROQ_MODEL || process.env.GROQ_ANALYZE_MODEL || 'llama-3.3-70b-versatile';
+    const model = (req.body && req.body.model) || process.env.GROQ_MODEL || process.env.GROQ_ANALYZE_MODEL || 'llama-3.1-8b-instant';
+    console.info('Using model for refineProposal:', model);
 
     let resp: any;
     if ((groq as any).chat && (groq as any).chat.completions && (groq as any).chat.completions.create) {
+      const start = Date.now();
       resp = await (groq as any).chat.completions.create({
         model,
         messages: [{ role: 'user', content: prompt }],
@@ -53,15 +55,20 @@ Return ONLY the JSON object. No explanation. No markdown.`;
         temperature: 0.0,
         response_format: { type: 'json_object' }
       });
+      console.info('Groq refine finished in', (Date.now() - start), 'ms');
     } else if ((groq as any).generate) {
+      const start = Date.now();
       resp = await (groq as any).generate({ model, input: prompt });
+      console.info('Groq refine (legacy) finished in', (Date.now() - start), 'ms');
     } else {
       if (!process.env.GROQ_API_URL) throw new Error('Groq SDK not available and GROQ_API_URL not set for fallback');
+      const start = Date.now();
       const r = await fetch(process.env.GROQ_API_URL!, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(process.env.GROQ_API_KEY ? { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } : {}) },
         body: JSON.stringify({ prompt, model, max_tokens: 4000 })
       });
+      console.info('Groq HTTP refine response status:', r.status, 'in', (Date.now() - start), 'ms');
       if (!r.ok) throw new Error('Groq HTTP fallback failed');
       resp = await r.text();
     }

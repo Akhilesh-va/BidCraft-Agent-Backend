@@ -1,18 +1,14 @@
 import { Request, Response } from 'express';
 import User from '../models/User';
 import admin, { initFirebase } from '../config/firebase';
-
 // Verify Firebase ID token, create/update user, return user object (no local JWT)
 export const verifyToken = async (req: Request, res: Response) => {
   // Accept idToken in body or Authorization header
   const idToken = req.body.idToken || (req.headers.authorization && req.headers.authorization.split(' ')[1]);
   if (!idToken) return res.status(400).json({ error: 'idToken required' });
-  // Lazy init firebase
-  const adminInst = initFirebase();
-  if (!adminInst) {
-    return res.status(500).json({ error: 'Firebase not initialized' });
-  }
   try {
+    // ensure firebase is initialized
+    try { initFirebase(); } catch (e) { /* will surface below */ }
     const decoded = await admin.auth().verifyIdToken(idToken);
     const email = (decoded as any).email as string | undefined;
     const uid = (decoded as any).uid as string | undefined;
@@ -35,7 +31,7 @@ export const verifyToken = async (req: Request, res: Response) => {
       user.verified = true;
       if (name) user.name = user.name || name;
       if (picture) user.picture = user.picture || picture;
-      if (email && !user.email) user.email = email;
+    if (email && !user.email) user.email = email;
       if (uid) user.googleId = user.googleId || uid;
       await user.save();
     }
@@ -47,22 +43,20 @@ export const verifyToken = async (req: Request, res: Response) => {
   }
 };
 
-// Dev-only: return detailed verification diagnostics (errors + decoded claims)
+// Dev/debug endpoint to verify a token and return diagnostics (requires ENABLE_DEV_AUTH=true)
 export const debugVerifyToken = async (req: Request, res: Response) => {
   if (process.env.ENABLE_DEV_AUTH !== 'true') {
-    return res.status(403).json({ error: 'Dev debug verify disabled. Set ENABLE_DEV_AUTH=true to enable.' });
+    return res.status(403).json({ error: 'Dev auth disabled. Set ENABLE_DEV_AUTH=true to enable.' });
   }
   const idToken = req.body.idToken || (req.headers.authorization && req.headers.authorization.split(' ')[1]);
   if (!idToken) return res.status(400).json({ error: 'idToken required' });
-  const adminInst = initFirebase();
-  if (!adminInst) {
-    return res.status(500).json({ error: 'Firebase not initialized' });
-  }
   try {
+    try { initFirebase(); } catch (e) { /* will surface below */ }
     const decoded = await admin.auth().verifyIdToken(idToken);
     return res.json({ ok: true, decoded });
   } catch (err: any) {
     console.error('debugVerifyToken failed', err);
+    // Return the original error message for diagnostics
     return res.status(400).json({ ok: false, error: err.message || String(err), stack: err.stack });
   }
 };
