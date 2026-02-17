@@ -14,6 +14,53 @@ const createGroqClient = () => {
   }
 };
 
+// Support multiple keys in env: GROQ_API_KEYS="key1,key2" or single GROQ_API_KEY
+const rawKeys = (process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '').trim();
+const GROQ_KEYS = rawKeys ? rawKeys.split(/[,;\s]+/).map(k => k.trim()).filter(Boolean) : [];
+if (!GROQ_KEYS.length) {
+  console.warn('No GROQ keys configured — Groq features will be disabled.');
+}
+
+let rrIndex = 0;
+function nextKey(): string | null {
+  if (!GROQ_KEYS.length) return null;
+  const k = GROQ_KEYS[rrIndex % GROQ_KEYS.length];
+  rrIndex = (rrIndex + 1) % GROQ_KEYS.length;
+  return k;
+}
+
+async function withKeyRotation<T>(fn: (apiKey: string) => Promise<T>, maxAttempts = 3): Promise<T> {
+  if (!GROQ_KEYS.length) throw new Error('No GROQ API keys configured');
+  const tried = new Set<string>();
+  let attempt = 0;
+  let lastErr: any = null;
+  const maskKey = (k: string) => k ? (k.length > 4 ? '****' + k.slice(-4) : '****') : '****';
+  while (attempt < maxAttempts && tried.size < GROQ_KEYS.length) {
+    const key = nextKey();
+    if (!key || tried.has(key)) { attempt++; continue; }
+    tried.add(key);
+    console.debug(`withKeyRotation: trying key=${maskKey(key)} attempt=${attempt + 1}`);
+    try {
+      const resp = await fn(key);
+      console.debug(`withKeyRotation: success key=${maskKey(key)}`);
+      return resp;
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.status || err?.statusCode || (err?.response && err.response.status);
+      const isRateLimit = status === 429 || /rate limit/i.test(err?.message || '');
+      if (!isRateLimit) {
+        console.error(`withKeyRotation: non-retryable error for key=${maskKey(key)}`, err);
+        throw err;
+      }
+      console.warn(`withKeyRotation: key rate-limited ${maskKey(key)} status=${status}; rotating to next key`);
+      const backoffMs = 200 * Math.pow(2, attempt);
+      await sleep(backoffMs);
+      attempt++;
+    }
+  }
+  console.error('withKeyRotation: all keys failed', lastErr);
+  throw lastErr || new Error('All Groq keys failed');
+}
 export const analyzeRequirements = async (rfp: any) => {
   await sleep(300);
   return {
@@ -124,9 +171,9 @@ ${rawText}
 -----`;
 
   const model = process.env.GROQ_MODEL || ANALYZE_MODEL;
-  // If no SDK configured, return heuristic fallback instead of throwing
-  if (!groqClient) {
-    console.warn('GROQ_API_KEY not set — using heuristic fallback extractor for company profile.');
+  // If no keys configured, fallback to heuristic
+  if (!GROQ_KEYS.length) {
+    console.warn('No GROQ keys configured — using heuristic fallback extractor for company profile.');
     return fallbackProfile(rawText);
   }
 
@@ -139,45 +186,49 @@ ${rawText}
       { role: 'user', content: prompt }
     ];
 
-    if ((groqClient as any).chat && (groqClient as any).chat.completions && (groqClient as any).chat.completions.create) {
-      const completion = await (groqClient as any).chat.completions.create({
-        model,
-        messages,
-        max_tokens: 3000,
-        temperature: 0.0,
-        // ask for JSON object response to improve reliability
-        response_format: { type: 'json_object' }
-      });
-      resp = completion;
-    } else if ((groqClient as any).generate) {
-      resp = await (groqClient as any).generate({ model, input: prompt });
-    } else if ((groqClient as any).call) {
-      resp = await (groqClient as any).call({ model, prompt });
-    } else {
-      resp = await (groqClient as any).request?.({ model, prompt });
-    }
+    resp = await withKeyRotation(async (apiKey) => {
+      const client = new Groq({ apiKey });
+      if ((client as any).chat && (client as any).chat.completions && (client as any).chat.completions.create) {
+        return await (client as any).chat.completions.create({
+          model,
+          messages,
+          max_tokens: 3000,
+          temperature: 0.0,
+          response_format: { type: 'json_object' }
+        });
+      } else if ((client as any).generate) {
+        return await (client as any).generate({ model, input: prompt });
+      } else if ((client as any).call) {
+        return await (client as any).call({ model, prompt });
+      } else {
+        return await (client as any).request?.({ model, prompt });
+      }
+    });
   } catch (e) {
     sdkError = e;
   }
 
-  // If SDK attempt failed and a direct API URL is configured, try HTTP fallback
+  // If SDK attempt failed and a direct API URL is configured, try HTTP fallback with rotation
   if (!resp && sdkError && process.env.GROQ_API_URL) {
     try {
-      const payload = { prompt, model, max_tokens: 3000 };
-      const r = await fetch(process.env.GROQ_API_URL!, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(process.env.GROQ_API_KEY ? { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } : {})
-        },
-        body: JSON.stringify(payload)
+      resp = await withKeyRotation(async (apiKey) => {
+        const payload = { prompt, model, max_tokens: 3000 };
+        const r = await fetch(process.env.GROQ_API_URL!, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          const err: any = new Error(`Groq HTTP fallback error: ${r.status} ${t}`);
+          err.status = r.status;
+          throw err;
+        }
+        return await r.text();
       });
-      if (!r.ok) {
-        const t = await r.text();
-        console.error('Groq HTTP fallback failed', r.status, t);
-      } else {
-        resp = await r.text();
-      }
     } catch (httpErr) {
       console.error('Groq HTTP fallback error', httpErr);
     }
@@ -229,10 +280,8 @@ ${rawText}
 
 // Extract structured SRS summary from raw SRS text using Groq (strict JSON output)
 export const extractSRS = async (rawText: string) => {
-  const groqClient = createGroqClient();
-  if (!groqClient) {
-    console.warn('GROQ_API_KEY not set — using simple heuristic fallback for SRS extraction.');
-    // Very simple fallback: return a minimal SRS-like structure
+  if (!GROQ_KEYS.length) {
+    console.warn('No GROQ keys configured — using simple heuristic fallback for SRS extraction.');
     return {
       projectOverview: rawText.slice(0, 300) || 'Not specified',
       keyRequirements: [],
@@ -259,44 +308,52 @@ ${rawText}
 -----`;
 
   const model = process.env.GROQ_MODEL || ANALYZE_MODEL;
-  // call SDK similar to company extractor
+  // call SDK similar to company extractor, with key rotation
   let resp: any = null;
   let sdkError: any = null;
   try {
-    if ((groqClient as any).chat && (groqClient as any).chat.completions && (groqClient as any).chat.completions.create) {
-      resp = await (groqClient as any).chat.completions.create({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 2000,
-        temperature: 0.0,
-        response_format: { type: 'json_object' }
-      });
-    } else if ((groqClient as any).generate) {
-      resp = await (groqClient as any).generate({ model, input: prompt });
-    } else if ((groqClient as any).request) {
-      resp = await (groqClient as any).request({ model, prompt });
-    } else {
-      resp = await (groqClient as any).call?.({ model, prompt });
-    }
+    const messages = [{ role: 'user', content: prompt }];
+    resp = await withKeyRotation(async (apiKey) => {
+      const client = new Groq({ apiKey });
+      if ((client as any).chat && (client as any).chat.completions && (client as any).chat.completions.create) {
+        return await (client as any).chat.completions.create({
+          model,
+          messages,
+          max_tokens: 2000,
+          temperature: 0.0,
+          response_format: { type: 'json_object' }
+        });
+      } else if ((client as any).generate) {
+        return await (client as any).generate({ model, input: prompt });
+      } else if ((client as any).request) {
+        return await (client as any).request({ model, prompt });
+      } else {
+        return await (client as any).call?.({ model, prompt });
+      }
+    });
   } catch (e) {
     sdkError = e;
   }
 
   if (!resp && sdkError && process.env.GROQ_API_URL) {
     try {
-      const r = await fetch(process.env.GROQ_API_URL!, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(process.env.GROQ_API_KEY ? { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } : {})
-        },
-        body: JSON.stringify({ prompt, model, max_tokens: 2000 })
+      resp = await withKeyRotation(async (apiKey) => {
+        const r = await fetch(process.env.GROQ_API_URL!, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+          },
+          body: JSON.stringify({ prompt, model, max_tokens: 2000 })
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          const err: any = new Error(`Groq HTTP fallback error: ${r.status} ${t}`);
+          err.status = r.status;
+          throw err;
+        }
+        return await r.text();
       });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`Groq HTTP fallback error: ${r.status} ${t}`);
-      }
-      resp = await r.text();
     } catch (httpErr) {
       throw new Error(`Groq SDK call failed: ${sdkError?.message || String(sdkError)}; HTTP fallback error: ${httpErr?.message || String(httpErr)}`);
     }
