@@ -10,7 +10,8 @@ export interface IRFP extends Document {
   generatedProposal?: any;
 }
 
-const RFPSchema = new mongoose.Schema<IRFP>({
+// Avoid strict Schema generic here to prevent TypeScript SchemaDefinition mismatches across mongoose types.
+const RFPSchema = new mongoose.Schema({
   clientName: { type: String },
   rawText: { type: String },
   budget: { type: Number },
@@ -22,7 +23,7 @@ const RFPSchema = new mongoose.Schema<IRFP>({
     default: 'Uploaded'
   },
   generatedProposal: { type: mongoose.Schema.Types.Mixed },
-}, { timestamps: true });
+} as mongoose.SchemaDefinition, { timestamps: true });
 
 const RFP = mongoose.model<IRFP>('RFP', RFPSchema);
 export default RFP;
